@@ -1,6 +1,6 @@
 import os
 from PIL import Image
-from moviepy.editor import VideoFileClip
+from moviepy import VideoFileClip
 
 from telegram import Update, ReplyKeyboardMarkup, InputSticker
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
