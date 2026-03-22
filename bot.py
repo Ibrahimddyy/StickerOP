@@ -560,6 +560,18 @@ async def set_bot_default_emoji_from_text(user_id: int, emoji_text: str) -> None
         raise ValueError("أرسل إيموجي واحد على الأقل")
     set_user_default_emoji(user_id, " ".join(em[:3]))
 
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # هذه هي الدالة التي كانت ناقصة وتسببت في الخطأ
+    text = (update.effective_message.text or "").strip()
+    awaiting = context.user_data.get("awaiting")
+    if awaiting == "default_emoji":
+        try:
+            await set_bot_default_emoji_from_text(update.effective_user.id, text)
+            context.user_data.pop("awaiting", None)
+            await update.effective_message.reply_text("تم تغيير الإيموجي الافتراضي ✅", reply_markup=main_menu_kb())
+        except Exception as e:
+            await update.effective_message.reply_text(f"خطأ: {e}")
+
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     ensure_user(user_id)
@@ -567,39 +579,22 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not kind:
         await update.message.reply_text("هذا الملف غير مدعوم، أرسل صورة أو فيديو.")
         return
-
     workdir = make_workdir(user_id)
     src_path = workdir / "source"
     await download_media(update.message, src_path)
-
     user = get_user(user_id)
     context.user_data["pending"] = {
-        "user_id": user_id,
-        "kind": kind,
-        "workdir": workdir,
-        "src_path": src_path,
-        "emoji": user["default_emoji"],
-        "created_at": uuid.uuid4().hex
+        "user_id": user_id, "kind": kind, "workdir": workdir,
+        "src_path": src_path, "emoji": user["default_emoji"], "created_at": uuid.uuid4().hex
     }
-    
-    await update.message.reply_text(
-        f"وصلتني {kind_label(kind)}! وين تريد أضيفها؟", 
-        reply_markup=pending_kb(context.user_data["pending"])
-    )
+    await update.message.reply_text(f"وصلتني {kind_label(kind)}!", reply_markup=pending_kb(context.user_data["pending"]))
 
 def setup_handlers(app):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_cmd))
-    app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
-    app.add_handler(CommandHandler("packs", packs_cmd))
-    app.add_handler(CommandHandler("emoji", emoji_cmd))
-    app.add_handler(CommandHandler("newpack", newpack_cmd))
     app.add_handler(CommandHandler("cancel", cancel_cmd))
-
-    media_filter = filters.ChatType.PRIVATE & (
-        filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Document.ALL
-    )
+    media_filter = filters.ChatType.PRIVATE & (filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Document.ALL)
     app.add_handler(MessageHandler(media_filter, handle_media))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(CallbackQueryHandler(handle_callback))
@@ -608,11 +603,10 @@ async def post_init(app):
     init_db()
     me = await app.bot.get_me()
     app.bot_data["bot_username"] = me.username.lower()
-    log.info(f"=== البوت جاهز للعمل باسم: @{me.username} ===")
+    log.info(f"=== البوت جاهز: @{me.username} ===")
 
 def main() -> None:
-    if not TOKEN:
-        return
+    if not TOKEN: return
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).concurrent_updates(True).build()
     setup_handlers(app)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
