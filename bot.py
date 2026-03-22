@@ -2,147 +2,155 @@ import os
 import telegram
 from PIL import Image
 
-# حل مشكلة ANTIALIAS في النسخ الجديدة (LANCZOS) والقديمة
+# حلول التوافق مع المكتبات (Pillow & MoviePy)
 try:
     from PIL.Image import Resampling
     LANCZOS = Resampling.LANCZOS
 except (ImportError, AttributeError):
     LANCZOS = getattr(Image, 'LANCZOS', getattr(Image, 'ANTIALIAS', None))
 
-# حل مشكلة MoviePy الجديدة (تغيير subclip و resize)
 try:
     from moviepy.editor import VideoFileClip
 except ImportError:
-    try:
-        from moviepy.video.io.VideoFileClip import VideoFileClip
-    except ImportError:
-        from moviepy import VideoFileClip
+    try: from moviepy import VideoFileClip
+    except ImportError: from moviepy.video.io.VideoFileClip import VideoFileClip
 
 from telegram import Update, ReplyKeyboardMarkup, InputSticker
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 TOKEN = os.getenv("BOT_TOKEN")
-user_packs = {} 
-temp = {}
 
-def keyboard():
-    return ReplyKeyboardMarkup(
-        [["📸 صورة", "🎥 فيديو"], ["📦 انشاء حزمة", "🗂️ حزمي"]],
-        resize_keyboard=True
-    )
+# مخزن البيانات (في بوت حقيقي يفضل استخدام قاعدة بيانات، هنا نستخدم الذاكرة)
+user_data = {} 
+
+def main_keyboard():
+    return ReplyKeyboardMarkup([
+        ["📸 تحويل صورة", "🎥 تحويل فيديو"],
+        ["📦 إنشاء حزمة جديدة", "🗂️ حزمي الحالية"],
+        ["📊 الإحصائيات", "⚙️ الإعدادات"]
+    ], resize_keyboard=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✨ البوت جاهز ومحدث! اختر النوع:", reply_markup=keyboard())
+    user_id = update.effective_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {"pack_name": None, "mode": None}
+    
+    await update.message.reply_text(
+        "Welcome to Pro Sticker Bot 🚀\n\n"
+        "البوت الآن يعمل بنظام الحزم الاحترافي. اختر ما تريد من القائمة أدناه:",
+        reply_markup=main_keyboard()
+    )
 
-async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.message.from_user.id)
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     text = update.message.text
-    if user_id not in temp: temp[user_id] = {}
+    
+    if user_id not in user_data: user_data[user_id] = {}
 
-    if text == "📸 صورة":
-        temp[user_id]["mode"] = "photo"
-        await update.message.reply_text("أرسل الصورة")
-    elif text == "🎥 فيديو":
-        temp[user_id]["mode"] = "video"
-        await update.message.reply_text("أرسل الفيديو")
-    elif text == "📦 انشاء حزمة":
-        temp[user_id]["create_pack"] = True
-        await update.message.reply_text("أرسل اسم الحزمة (بالإنجليزي)")
-    elif temp[user_id].get("create_pack"):
-        bot_info = await context.bot.get_me()
+    if text == "📸 تحويل صورة":
+        user_data[user_id]["mode"] = "photo"
+        await update.message.reply_text("📥 أرسل الصورة الآن (سيتم تحويلها لستيكر ثابت)")
+    
+    elif text == "🎥 تحويل فيديو":
+        user_data[user_id]["mode"] = "video"
+        await update.message.reply_text("📥 أرسل الفيديو (يفضل أقل من 3 ثوانٍ)")
+
+    elif text == "📦 إنشاء حزمة جديدة":
+        user_data[user_id]["waiting_for_pack_name"] = True
+        await update.message.reply_text("✍️ أرسل اسماً للحزمة (بالإنجليزي فقط وبدون مسافات):")
+
+    elif user_data[user_id].get("waiting_for_pack_name"):
         clean_name = "".join(e for e in text if e.isalnum())
+        bot_info = await context.bot.get_me()
         pack_id = f"st_{user_id}_{clean_name}_by_{bot_info.username}"
-        user_packs[user_id] = pack_id
-        temp[user_id]["create_pack"] = False
-        await update.message.reply_text(f"✅ تم تفعيل الحزمة: {text}")
-    elif temp[user_id].get("wait"):
-        temp[user_id]["emoji"] = text
-        temp[user_id]["wait"] = False
-        await process(update, context, user_id)
+        user_data[user_id]["pack_name"] = pack_id
+        user_data[user_id]["waiting_for_pack_name"] = False
+        await update.message.reply_text(f"✅ تم اعتماد الحزمة: {text}\nأي ستيكر تصنعه الآن سيضاف إليها تلقائياً.")
 
-async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.message.from_user.id)
-    if temp.get(user_id, {}).get("mode") != "photo": return
-    file = await update.message.photo[-1].get_file()
-    path = f"{user_id}.jpg"
-    await file.download_to_drive(path)
-    temp[user_id]["file"] = path
-    temp[user_id]["wait"] = True
-    await update.message.reply_text("أرسل ايموجي")
+    elif text == "🗂️ حزمي الحالية":
+        pack = user_data[user_id].get("pack_name")
+        if pack:
+            await update.message.reply_text(f"حزمتك النشطة حالياً هي:\nt.me/addstickers/{pack}")
+        else:
+            await update.message.reply_text("لا توجد حزمة نشطة. اضغط على 'إنشاء حزمة' أولاً.")
 
-async def video_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.message.from_user.id)
-    if temp.get(user_id, {}).get("mode") != "video": return
-    file = await update.message.video.get_file()
-    path = f"{user_id}.mp4"
-    await file.download_to_drive(path)
-    temp[user_id]["file"] = path
-    temp[user_id]["video"] = True
-    temp[user_id]["wait"] = True
-    await update.message.reply_text("أرسل ايموجي")
+async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    mode = user_data.get(user_id, {}).get("mode")
+    
+    if not mode:
+        await update.message.reply_text("⚠️ من فضلك اختر 'صورة' أو 'فيديو' من القائمة أولاً.")
+        return
 
-async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
-    data = temp[user_id]
-    path = data["file"]
-    emoji = data.get("emoji", "✨")
-    out = ""
+    file_path = f"file_{user_id}"
+    out_path = ""
+    is_video = False
+
     try:
-        if data.get("video"):
-            clip = VideoFileClip(path)
+        msg = await update.message.reply_text("⏳ جاري المعالجة...")
+        
+        if update.message.photo:
+            file = await update.message.photo[-1].get_file()
+            await file.download_to_drive(f"{file_path}.jpg")
+            img = Image.open(f"{file_path}.jpg").convert("RGBA")
+            img.thumbnail((512, 512), LANCZOS)
+            out_path = f"{user_id}.webp"
+            img.save(out_path, "WEBP")
+            sticker_format = "static"
+        
+        elif update.message.video or update.message.video_note:
+            is_video = True
+            media = update.message.video or update.message.video_note
+            file = await media.get_file()
+            await file.download_to_drive(f"{file_path}.mp4")
             
-            # حل مشكلة subclip في MoviePy 2.0+
-            try:
-                clip = clip.subclip(0, min(2.9, clip.duration))
-            except AttributeError:
-                clip = clip.cropped(0, min(2.9, clip.duration)) # للمسخ الجديدة جداً
+            clip = VideoFileClip(f"{file_path}.mp4")
+            # قص الفيديو لـ 2.9 ثانية لضمان قبول تلغرام
+            duration = min(2.9, clip.duration)
+            try: clip = clip.subclip(0, duration)
+            except: clip = clip.cropped(0, duration)
             
-            # حل مشكلة resize
+            # تغيير الحجم مع الحفاظ على التناسب
             w, h = clip.size
-            try:
-                clip = clip.resize(width=512) if w > h else clip.resize(height=512)
-            except AttributeError:
-                clip = clip.resized(width=512) if w > h else clip.resized(height=512)
-
-            out = f"{user_id}.webm"
-            clip.write_videofile(out, codec="libvpx-vp9", fps=30, bitrate="300k", audio=False, logger=None, ffmpeg_params=["-pix_fmt", "yuva420p"])
+            if w > h: clip = clip.resized(width=512) if hasattr(clip, 'resized') else clip.resize(width=512)
+            else: clip = clip.resized(height=512) if hasattr(clip, 'resized') else clip.resize(height=512)
+            
+            out_path = f"{user_id}.webm"
+            clip.write_videofile(out_path, codec="libvpx-vp9", fps=30, bitrate="400k", audio=False, logger=None, ffmpeg_params=["-pix_fmt", "yuva420p"])
             clip.close()
             sticker_format = "video"
-        else:
-            img = Image.open(path).convert("RGBA")
-            img = img.resize((512, 512), LANCZOS)
-            out = f"{user_id}.webp"
-            img.save(out, "WEBP")
-            sticker_format = "static"
 
-        with open(out, "rb") as f:
+        # إرسال الستيكر للمستخدم
+        with open(out_path, "rb") as f:
             await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=f)
 
-        pack_name = user_packs.get(user_id)
+        # إضافة الستيكر للحزمة (المكان الذي كان يحدث فيه الخطأ)
+        pack_name = user_data[user_id].get("pack_name")
         if pack_name:
-            with open(out, "rb") as f:
-                sticker_obj = InputSticker(sticker=f, emoji_list=[emoji])
+            with open(out_path, "rb") as f:
+                sticker_obj = InputSticker(sticker=f, emoji_list=["✨"], format=sticker_format)
                 try:
-                    await context.bot.add_sticker_to_set(user_id=int(user_id), name=pack_name, sticker=sticker_obj)
-                except Exception:
+                    await context.bot.add_sticker_to_set(user_id=user_id, name=pack_name, sticker=sticker_obj)
+                    await update.message.reply_text(f"✅ تمت إضافته للحزمة!")
+                except Exception as e:
+                    # إذا كانت أول مرة، ننشئ الحزمة
                     await context.bot.create_new_sticker_set(
-                        user_id=int(user_id), name=pack_name, title="My Pack", 
-                        stickers=[InputSticker(sticker=open(out, "rb"), emoji_list=[emoji])],
-                        sticker_format=sticker_format
+                        user_id=user_id, name=pack_name, title="My Pro Pack", 
+                        stickers=[sticker_obj], sticker_format=sticker_format
                     )
-                await update.message.reply_text("✅ تمت الإضافة!")
+                    await update.message.reply_text(f"📦 تم إنشاء الحزمة وإضافة أول ستيكر!")
 
     except Exception as e:
-        await update.message.reply_text(f"❌ خطأ تقني: {str(e)}")
+        await update.message.reply_text(f"❌ خطأ: {str(e)}")
     finally:
-        if os.path.exists(path): os.remove(path)
-        if out and os.path.exists(out): os.remove(out)
-        temp[user_id] = {}
+        # تنظيف الملفات
+        for f in [f"{file_path}.jpg", f"{file_path}.mp4", out_path]:
+            if os.path.exists(f): os.remove(f)
 
 if __name__ == '__main__':
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
-    app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
-    app.add_handler(MessageHandler(filters.VIDEO, video_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.VIDEO_NOTE, handle_media))
     app.run_polling()
     
