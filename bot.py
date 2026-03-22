@@ -567,7 +567,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         try:
             await set_bot_default_emoji_from_text(update.effective_user.id, text)
             context.user_data.pop("awaiting", None)
-            await update.effective_message.reply_text("تم تغيير الإيموجي الافتراضي ✅", reply_markup=main_menu_kb())
+            await update.effective_message.reply_text("تم تغيير الإيموجي ✅")
         except Exception as e:
             await update.effective_message.reply_text(f"خطأ: {e}")
 
@@ -575,82 +575,48 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     user_id = update.effective_user.id
     ensure_user(user_id)
     kind = kind_from_message(update.message)
-    if not kind:
-        await update.message.reply_text("هذا الملف غير مدعوم.")
-        return
+    if not kind: return
     workdir = make_workdir(user_id)
     src_path = workdir / "source"
     await download_media(update.message, src_path)
     user = get_user(user_id)
     context.user_data["pending"] = {
         "user_id": user_id, "kind": kind, "workdir": workdir,
-        "src_path": src_path, "emoji": user["default_emoji"], "created_at": uuid.uuid4().hex
+        "src_path": src_path, "emoji": user["default_emoji"]
     }
     await update.message.reply_text(f"وصلتني {kind_label(kind)}!", reply_markup=pending_kb(context.user_data["pending"]))
 
-# --- الدالة اللي كانت ناقصة ومسببة المشكلة ---
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     data = query.data
-    user_id = update.effective_user.id
-    
-    # لتصحيح الأخطاء: سيظهر هذا في سجلات Railway عند الضغط
-    print(f"DEBUG: تم الضغط على زر بياناته: {data}")
-    
     await query.answer()
-
     if data == "cancel_pending":
         await clear_pending(context)
-        await query.edit_message_text("تم إلغاء العملية بنجاح ❌")
-        
+        await query.edit_message_text("تم الإلغاء ❌")
     elif data == "new_pack":
         context.user_data["awaiting"] = "pack_title"
-        await query.edit_message_text("أرسل الآن اسماً لحزمتك الجديدة:")
-
+        await query.edit_message_text("أرسل اسماً للحزمة الجديدة:")
     elif data.startswith("add_to_"):
-        # المنطق الخاص بإضافة الملصق للحزمة
-        await query.edit_message_text("جاري إضافة الملصق... انتظر قليلاً ⏳")
-        # (هنا تضع دالة المعالجة الخاصة بك)
-        await query.edit_message_text("تمت الإضافة بنجاح ✅")
-        await clear_pending(context)
-        
+        await query.edit_message_text("جاري الإضافة... ⏳")
+        # هنا تكملة المعالجة
 
-    elif data.startswith("add_to_"):
-        pack_id = data.replace("add_to_", "")
-        pending = context.user_data.get("pending")
-        if not pending:
-            await query.edit_message_text("انتهت صلاحية الطلب، أرسل الصورة مرة أخرى.")
-            return
-        
-        await query.edit_message_text("جاري المعالجة وإضافة الملصق... انتظر قليلاً ⏳")
-        try:
-            # هنا يوضع كود المعالجة الفني الخاص بك
-            await query.edit_message_text("تمت الإضافة بنجاح ✅")
-            await clear_pending(context)
-        except Exception as e:
-            await query.edit_message_text(f"حدث خطأ أثناء الإضافة: {e}")
-            
 def setup_handlers(app):
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("menu", menu_cmd))
-    app.add_handler(CommandHandler("stats", stats_cmd))
-    app.add_handler(CommandHandler("cancel", cancel_cmd))
-    media_filter = filters.ChatType.PRIVATE & (filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Document.ALL)
+    app.add_handler(CallbackQueryHandler(handle_callback))
+    media_filter = filters.ChatType.PRIVATE & (filters.PHOTO | filters.VIDEO | filters.ANIMATION)
     app.add_handler(MessageHandler(media_filter, handle_media))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(CallbackQueryHandler(handle_callback))
 
 async def post_init(app):
     init_db()
     me = await app.bot.get_me()
-    app.bot_data["bot_username"] = me.username.lower()
-    log.info(f"=== البوت اشتغل: @{me.username} ===")
+    log.info(f"=== {me.username} اشتغل! ===")
 
 def main() -> None:
     if not TOKEN: return
-    app = ApplicationBuilder().token(TOKEN).post_init(post_init).concurrent_updates(True).build()
+    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     setup_handlers(app)
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
