@@ -561,7 +561,6 @@ async def set_bot_default_emoji_from_text(user_id: int, emoji_text: str) -> None
     set_user_default_emoji(user_id, " ".join(em[:3]))
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # هذه هي الدالة التي كانت ناقصة وتسببت في الخطأ
     text = (update.effective_message.text or "").strip()
     awaiting = context.user_data.get("awaiting")
     if awaiting == "default_emoji":
@@ -577,7 +576,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     ensure_user(user_id)
     kind = kind_from_message(update.message)
     if not kind:
-        await update.message.reply_text("هذا الملف غير مدعوم، أرسل صورة أو فيديو.")
+        await update.message.reply_text("هذا الملف غير مدعوم.")
         return
     workdir = make_workdir(user_id)
     src_path = workdir / "source"
@@ -588,6 +587,16 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "src_path": src_path, "emoji": user["default_emoji"], "created_at": uuid.uuid4().hex
     }
     await update.message.reply_text(f"وصلتني {kind_label(kind)}!", reply_markup=pending_kb(context.user_data["pending"]))
+
+# --- الدالة اللي كانت ناقصة ومسببة المشكلة ---
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    # هنا تكملة منطق الأزرار (إضافة، إلغاء، الخ)
+    if data == "cancel_pending":
+        await clear_pending(context)
+        await query.edit_message_text("تم الإلغاء.")
 
 def setup_handlers(app):
     app.add_handler(CommandHandler("start", start))
@@ -603,7 +612,7 @@ async def post_init(app):
     init_db()
     me = await app.bot.get_me()
     app.bot_data["bot_username"] = me.username.lower()
-    log.info(f"=== البوت جاهز: @{me.username} ===")
+    log.info(f"=== البوت اشتغل: @{me.username} ===")
 
 def main() -> None:
     if not TOKEN: return
