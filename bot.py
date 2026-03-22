@@ -1,7 +1,6 @@
 import os
 from PIL import Image
 
-# الحل الجذري لمشكلة ANTIALIAS
 # نستخدم LANCZOS مباشرة وهو البديل الرسمي والحديث
 try:
     from PIL import ImageResampling
