@@ -555,14 +555,12 @@ async def clear_pending(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def set_bot_default_emoji_from_text(user_id: int, emoji_text: str) -> None:
-
     em = emojis_from_text(emoji_text)
-        if not em:
-            raise ValueError("أرسل إيموجي واحد على الأقل")
-        set_user_default_emoji(user_id, " ".join(em[:3]))
+    if not em:
+        raise ValueError("أرسل إيموجي واحد على الأقل")
+    set_user_default_emoji(user_id, " ".join(em[:3]))
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # دالة استلام الصور والفيديوهات وتحويلها
     user_id = update.effective_user.id
     ensure_user(user_id)
     kind = kind_from_message(update.message)
@@ -574,7 +572,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     src_path = workdir / "source"
     await download_media(update.message, src_path)
 
-    # حفظ المعلومات مؤقتاً لحين ضغط زر "إضافة"
     user = get_user(user_id)
     context.user_data["pending"] = {
         "user_id": user_id,
@@ -589,8 +586,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         f"وصلتني {kind_label(kind)}! وين تريد أضيفها؟", 
         reply_markup=pending_kb(context.user_data["pending"])
     )
-
-# --- نظام التشغيل النهائي ---
 
 def setup_handlers(app):
     app.add_handler(CommandHandler("start", start))
@@ -617,9 +612,7 @@ async def post_init(app):
 
 def main() -> None:
     if not TOKEN:
-        print("خطأ: لم تضع التوكن (BOT_TOKEN) في إعدادات Railway!")
         return
-    
     app = ApplicationBuilder().token(TOKEN).post_init(post_init).concurrent_updates(True).build()
     setup_handlers(app)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
