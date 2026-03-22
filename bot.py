@@ -1,7 +1,6 @@
 import os
 import json
 from PIL import Image
-from rembg import remove
 from moviepy.editor import VideoFileClip
 
 from telegram import Update, ReplyKeyboardMarkup
@@ -34,12 +33,10 @@ temp = {}
 def keyboard():
     return ReplyKeyboardMarkup([
         ["📸 صورة", "🎥 فيديو"],
-        ["🎨 إزالة خلفية", "🧠 ايموجي تلقائي"],
-        ["📊 احصائياتي"]
+        ["🧠 ايموجي تلقائي", "📊 احصائياتي"]
     ], resize_keyboard=True)
 
 # ===== بدء =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🔥 بوت ستيكر خارق\nاختر من القائمة:",
-        reply_markup=keyboard()
+        "🔥 بوت ستيكر احترافي\nاخت
