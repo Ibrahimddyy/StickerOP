@@ -107,4 +107,43 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
 
     try:
         if data.get("video"):
-            clip = VideoFileClip(path).subclip(0,
+            clip = VideoFileClip(path).subclip(0, 3)
+            out = f"{user_id}.webm"
+            clip.write_videofile(out, codec="libvpx", audio=False)
+        else:
+            img = Image.open(path)
+            img = img.resize((512, 512))
+            out = f"{user_id}.webp"
+            img.save(out, "WEBP")
+
+        await context.bot.send_sticker(
+            chat_id=update.effective_chat.id,
+            sticker=open(out, "rb")
+        )
+
+        users[user_id] = users.get(user_id, 0) + 1
+
+        await update.message.reply_text(f"تم الستيكر {emoji}")
+
+    except Exception as e:
+        await update.message.reply_text(str(e))
+
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+        if 'out' in locals() and os.path.exists(out):
+            os.remove(out)
+
+        temp[user_id] = {}
+
+# ===== run =====
+app = ApplicationBuilder().token(TOKEN).build()
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT, text_handler))
+app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
+app.add_handler(MessageHandler(filters.VIDEO, video_handler))
+
+print("RUNNING...")
+
+app.run_polling()
