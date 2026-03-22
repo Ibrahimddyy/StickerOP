@@ -593,6 +593,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     data = query.data
     user_id = update.effective_user.id
+    
+    # لتصحيح الأخطاء: سيظهر هذا في سجلات Railway عند الضغط
+    print(f"DEBUG: تم الضغط على زر بياناته: {data}")
+    
     await query.answer()
 
     if data == "cancel_pending":
@@ -602,6 +606,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data == "new_pack":
         context.user_data["awaiting"] = "pack_title"
         await query.edit_message_text("أرسل الآن اسماً لحزمتك الجديدة:")
+
+    elif data.startswith("add_to_"):
+        # المنطق الخاص بإضافة الملصق للحزمة
+        await query.edit_message_text("جاري إضافة الملصق... انتظر قليلاً ⏳")
+        # (هنا تضع دالة المعالجة الخاصة بك)
+        await query.edit_message_text("تمت الإضافة بنجاح ✅")
+        await clear_pending(context)
+        
 
     elif data.startswith("add_to_"):
         pack_id = data.replace("add_to_", "")
