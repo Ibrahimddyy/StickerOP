@@ -5,13 +5,14 @@ from moviepy import VideoFileClip
 from telegram import Update, ReplyKeyboardMarkup, InputSticker
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
+# توكن البوت من BotFather
 TOKEN = os.getenv("BOT_TOKEN")
 
-# سنفصل بيانات الحزم عن البيانات المؤقتة لكي لا تُحذف
-user_packs = {} 
-temp = {}
+# مخازن البيانات
+user_packs = {}  # لحفظ أسماء الحزم لكل مستخدم
+temp = {}        # للبيانات المؤقتة أثناء صنع الستيكر
 
-# ===== keyboard =====
+# ===== القائمة البرمجية (Keyboard) =====
 def keyboard():
     return ReplyKeyboardMarkup(
         [
@@ -22,14 +23,14 @@ def keyboard():
         resize_keyboard=True
     )
 
-# ===== start =====
+# ===== دالة البداية =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🔥 بوت ستيكر احترافي\nاختار من القائمة:",
+        "🔥 أهلاً بك في بوت الستيكرات الاحترافي\n\nاختار النوع اللي تحب تحوله من القائمة تحت:",
         reply_markup=keyboard()
     )
 
-# ===== text =====
+# ===== معالج النصوص والأزرار =====
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     text = update.message.text
@@ -38,47 +39,47 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "📸 صورة":
         temp[user_id]["mode"] = "photo"
-        await update.message.reply_text("ارسل الصورة")
+        await update.message.reply_text("أرسل الصورة الآن")
 
     elif text == "🎥 فيديو":
         temp[user_id]["mode"] = "video"
-        await update.message.reply_text("ارسل الفيديو")
+        await update.message.reply_text("أرسل الفيديو الآن (يفضل أقل من 10 ثواني)")
 
     elif text == "🧠 ايموجي تلقائي":
         temp[user_id]["auto"] = not temp[user_id].get("auto", False)
-        status = "تفعيل" if temp[user_id]["auto"] else "تعطيل"
+        status = "تفعيل ✅" if temp[user_id]["auto"] else "تعطيل ❌"
         await update.message.reply_text(f"تم {status} الايموجي التلقائي (🔥)")
 
     elif text == "📊 احصائياتي":
-        await update.message.reply_text(f"بوت الستيكرات يعمل بنجاح!")
+        await update.message.reply_text(f"البوت يعمل بكفاءة وجاهز لخدمتك!")
 
     elif text == "📦 انشاء حزمة":
         temp[user_id]["create_pack"] = True
-        await update.message.reply_text("ارسل اسم الحزمة (بالانجليزي فقط وبدون فراغات)")
+        await update.message.reply_text("أرسل اسم الحزمة الآن (بالإنجليزي فقط وبدون فراغات)")
 
     elif temp[user_id].get("create_pack"):
-        # اسم الحزمة في تلغرام يجب ان ينتهي بـ _by_اسم_البوت
         bot_info = await context.bot.get_me()
         clean_name = "".join(e for e in text if e.isalnum())
+        # اسم الحزمة يجب أن ينتهي بـ _by_اسم_البوت
         pack_id = f"s_{user_id}_{clean_name}_by_{bot_info.username}"
         
         user_packs[user_id] = pack_id
         temp[user_id]["create_pack"] = False
-        await update.message.reply_text(f"✅ تم حفظ اسم الحزمة: {text}\nارسل اول ملف الآن.")
+        await update.message.reply_text(f"✅ تم حفظ اسم الحزمة: {text}\nأرسل أول صورة أو فيديو الآن.")
 
     elif text == "🗂️ حزمي":
         pack = user_packs.get(user_id)
         if pack:
-            await update.message.reply_text(f"حزمتك الحالية:\nhttps://t.me/addstickers/{pack}")
+            await update.message.reply_text(f"رابط حزمتك الحالية:\nhttps://t.me/addstickers/{pack}")
         else:
-            await update.message.reply_text("ما عندك حزمة، اضغط على 'انشاء حزمة' أولاً.")
+            await update.message.reply_text("ما عندك حزمة مفعلة حالياً، اضغط على 'انشاء حزمة'.")
 
     elif temp[user_id].get("wait"):
         temp[user_id]["emoji"] = text
         temp[user_id]["wait"] = False
         await process(update, context, user_id)
 
-# ===== photo & video handlers =====
+# ===== معالجة الصور والفيديو =====
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     if temp.get(user_id, {}).get("mode") != "photo": return
@@ -104,9 +105,9 @@ async def check_emoji_and_process(update, context, user_id):
         await process(update, context, user_id)
     else:
         temp[user_id]["wait"] = True
-        await update.message.reply_text("ارسل ايموجي للستيكر")
+        await update.message.reply_text("أرسل ايموجي للستيكر")
 
-# ===== process =====
+# ===== دالة المعالجة الأساسية (Core) =====
 async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     data = temp[user_id]
     path = data["file"]
@@ -114,26 +115,31 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     out = ""
 
     try:
+        # معالجة الفيديو
         if data.get("video"):
             clip = VideoFileClip(path)
-            # تحديث MoviePy 2.0: subclip صار subclipped
             duration = min(2.9, clip.duration)
             clip = clip.subclipped(0, duration).resized(height=512)
             out = f"{user_id}.webm"
-            clip.write_videofile(out, codec="libvpx-vp9", fps=24, bitrate="500k")
+            clip.write_videofile(out, codec="libvpx-vp9", fps=24, bitrate="500k", logger=None)
             sticker_format = "video"
+        
+        # معالجة الصورة
         else:
-            img = Image.open(path)
-            img = img.resize((512, 512))
+            img = Image.open(path).convert("RGBA")
+            # إضافة خلفية بيضاء لحل مشكلة الشفافية (الستيكر الشبح)
+            background = Image.new("RGBA", img.size, (255, 255, 255, 255))
+            img = Image.alpha_composite(background, img).convert("RGB")
+            img = img.resize((512, 512), Image.Resampling.LANCZOS)
             out = f"{user_id}.webp"
             img.save(out, "WEBP")
             sticker_format = "static"
 
-        # ارسال الستيكر للمستخدم
+        # ارسال الستيكر للمستخدم للمعاينة
         with open(out, "rb") as f:
             await context.bot.send_sticker(chat_id=update.effective_chat.id, sticker=f)
 
-        # إضافة للحزمة إذا وجدت
+        # محاولة إضافة الستيكر للحزمة
         pack_name = user_packs.get(user_id)
         if pack_name:
             with open(out, "rb") as f:
@@ -142,26 +148,34 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
                     await context.bot.add_sticker_to_set(user_id=int(user_id), name=pack_name, sticker=sticker_obj)
                     await update.message.reply_text("✅ تمت إضافته لحزمتك!")
                 except Exception:
+                    # إذا كانت الحزمة غير موجودة نقوم بإنشائها
                     await context.bot.create_new_sticker_set(
-                        user_id=int(user_id), name=pack_name, title="My Stickers", 
-                        stickers=[sticker_obj], sticker_format=sticker_format
+                        user_id=int(user_id), 
+                        name=pack_name, 
+                        title="StickerOP Pack", 
+                        stickers=[sticker_obj]
                     )
                     await update.message.reply_text("📦 تم إنشاء الحزمة وإضافة الستيكر الأول!")
 
     except Exception as e:
-        await update.message.reply_text(f"❌ خطأ: {e}")
+        await update.message.reply_text(f"❌ حدث خطأ: {e}")
     finally:
-        # تنظيف الملفات فقط، لا نمسح الـ temp بالكامل لكي لا يضيع اسم الحزمة
+        # تنظيف الملفات المؤقتة
         if os.path.exists(path): os.remove(path)
         if out and os.path.exists(out): os.remove(out)
         temp[user_id].pop("file", None)
         temp[user_id].pop("video", None)
         temp[user_id].pop("wait", None)
 
-# ===== run =====
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
-app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
-app.add_handler(MessageHandler(filters.VIDEO, video_handler))
-app.run_polling()
+# ===== تشغيل البوت =====
+if __name__ == '__main__':
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+    app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
+    app.add_handler(MessageHandler(filters.VIDEO, video_handler))
+
+    print("🚀 البوت يعمل الآن بنجاح...")
+    app.run_polling()
+    
