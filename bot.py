@@ -3,11 +3,10 @@ import json
 from PIL import Image
 from moviepy.editor import VideoFileClip
 
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InputSticker
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 TOKEN = os.getenv("BOT_TOKEN")
-DATA_FILE = "data.json"
 
 users = {}
 temp = {}
@@ -17,6 +16,7 @@ def keyboard():
     return ReplyKeyboardMarkup(
         [
             ["📸 صورة", "🎥 فيديو"],
+            ["📦 انشاء حزمة", "🗂️ حزمي"],
             ["🧠 ايموجي تلقائي", "📊 احصائياتي"]
         ],
         resize_keyboard=True
@@ -25,7 +25,7 @@ def keyboard():
 # ===== start =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🔥 بوت ستيكر شغال\nاختار من القائمة:",
+        "🔥 بوت ستيكر احترافي\nاختار من القائمة:",
         reply_markup=keyboard()
     )
 
@@ -52,6 +52,25 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "📊 احصائياتي":
         count = users.get(user_id, 0)
         await update.message.reply_text(f"عدد الستيكرات: {count}")
+
+    elif text == "📦 انشاء حزمة":
+        temp[user_id]["create_pack"] = True
+        await update.message.reply_text("ارسل اسم الحزمة")
+
+    elif temp[user_id].get("create_pack"):
+        pack_name = text
+        pack_id = f"{user_id}_pack_by_bot"
+        temp[user_id]["pack"] = pack_id
+        temp[user_id]["create_pack"] = False
+
+        await update.message.reply_text("✅ تم حفظ اسم الحزمة، ارسل اول صورة او فيديو")
+
+    elif text == "🗂️ حزمي":
+        pack = temp.get(user_id, {}).get("pack")
+        if pack:
+            await update.message.reply_text(f"https://t.me/addstickers/{pack}")
+        else:
+            await update.message.reply_text("ما عندك حزمة بعد")
 
     elif temp[user_id].get("wait"):
         temp[user_id]["emoji"] = text
@@ -107,26 +126,78 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
 
     try:
         if data.get("video"):
-            clip = VideoFileClip(path).subclip(0, 3)
+            clip = VideoFileClip(path)
+            duration = min(3, clip.duration)
+            clip = clip.subclip(0, duration)
+            clip = clip.resize(height=512)
+
             out = f"{user_id}.webm"
-            clip.write_videofile(out, codec="libvpx", audio=False)
+
+            clip.write_videofile(
+                out,
+                codec="libvpx-vp9",
+                audio=False,
+                fps=24,
+                bitrate="500k"
+            )
+
+            sticker_file = open(out, "rb")
+            sticker_format = "video"
+
         else:
             img = Image.open(path)
             img = img.resize((512, 512))
+
             out = f"{user_id}.webp"
             img.save(out, "WEBP")
 
+            sticker_file = open(out, "rb")
+            sticker_format = "static"
+
+        # ارسال ستكر
         await context.bot.send_sticker(
             chat_id=update.effective_chat.id,
-            sticker=open(out, "rb")
+            sticker=sticker_file
         )
+
+        # رفع للحزمة
+        pack = data.get("pack")
+        if pack:
+            try:
+                sticker = InputSticker(
+                    sticker=sticker_file,
+                    emoji_list=[emoji],
+                    format=sticker_format
+                )
+
+                await context.bot.add_sticker_to_set(
+                    user_id=int(user_id),
+                    name=pack,
+                    sticker=sticker
+                )
+            except:
+                try:
+                    sticker = InputSticker(
+                        sticker=sticker_file,
+                        emoji_list=[emoji],
+                        format=sticker_format
+                    )
+
+                    await context.bot.create_new_sticker_set(
+                        user_id=int(user_id),
+                        name=pack,
+                        title="My Pack",
+                        stickers=[sticker]
+                    )
+                except:
+                    pass
 
         users[user_id] = users.get(user_id, 0) + 1
 
-        await update.message.reply_text(f"تم الستيكر {emoji}")
+        await update.message.reply_text(f"✅ تم الستيكر {emoji}")
 
     except Exception as e:
-        await update.message.reply_text(str(e))
+        await update.message.reply_text(f"خطأ: {e}")
 
     finally:
         if os.path.exists(path):
@@ -144,6 +215,6 @@ app.add_handler(MessageHandler(filters.TEXT, text_handler))
 app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
 app.add_handler(MessageHandler(filters.VIDEO, video_handler))
 
-print("RUNNING...")
+print("🔥 BOT RUNNING")
 
 app.run_polling()
