@@ -555,7 +555,8 @@ async def clear_pending(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def set_bot_default_emoji_from_text(user_id: int, emoji_text: str) -> None:
-            em = emojis_from_text(emoji_text)
+
+    em = emojis_from_text(emoji_text)
         if not em:
             raise ValueError("أرسل إيموجي واحد على الأقل")
         set_user_default_emoji(user_id, " ".join(em[:3]))
