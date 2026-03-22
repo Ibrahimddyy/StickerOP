@@ -2,21 +2,21 @@ import os
 import telegram
 from PIL import Image
 
-# حل مشكلة ANTIALIAS للنسخ الجديدة والقديمة
+# حل مشكلة ANTIALIAS في النسخ الجديدة (LANCZOS) والقديمة
 try:
     from PIL.Image import Resampling
     LANCZOS = Resampling.LANCZOS
-except ImportError:
-    LANCZOS = Image.ANTIALIAS
+except (ImportError, AttributeError):
+    LANCZOS = getattr(Image, 'LANCZOS', getattr(Image, 'ANTIALIAS', None))
 
-# حل مشكلة استيراد MoviePy مهما كان إصدارها
+# حل مشكلة MoviePy الجديدة (تغيير subclip و resize)
 try:
     from moviepy.editor import VideoFileClip
 except ImportError:
     try:
-        from moviepy import VideoFileClip
-    except ImportError:
         from moviepy.video.io.VideoFileClip import VideoFileClip
+    except ImportError:
+        from moviepy import VideoFileClip
 
 from telegram import Update, ReplyKeyboardMarkup, InputSticker
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
@@ -32,7 +32,7 @@ def keyboard():
     )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🚀 البوت عاد للعمل! أرسل /start إذا توقفت القائمة.", reply_markup=keyboard())
+    await update.message.reply_text("✨ البوت جاهز ومحدث! اختر النوع:", reply_markup=keyboard())
 
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
@@ -41,17 +41,17 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text == "📸 صورة":
         temp[user_id]["mode"] = "photo"
-        await update.message.reply_text("أرسل الصورة الآن")
+        await update.message.reply_text("أرسل الصورة")
     elif text == "🎥 فيديو":
         temp[user_id]["mode"] = "video"
-        await update.message.reply_text("أرسل الفيديو الآن")
+        await update.message.reply_text("أرسل الفيديو")
     elif text == "📦 انشاء حزمة":
         temp[user_id]["create_pack"] = True
-        await update.message.reply_text("أرسل اسم الحزمة بالإنجليزية")
+        await update.message.reply_text("أرسل اسم الحزمة (بالإنجليزي)")
     elif temp[user_id].get("create_pack"):
         bot_info = await context.bot.get_me()
         clean_name = "".join(e for e in text if e.isalnum())
-        pack_id = f"s_{user_id}_{clean_name}_by_{bot_info.username}"
+        pack_id = f"st_{user_id}_{clean_name}_by_{bot_info.username}"
         user_packs[user_id] = pack_id
         temp[user_id]["create_pack"] = False
         await update.message.reply_text(f"✅ تم تفعيل الحزمة: {text}")
@@ -67,9 +67,8 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     path = f"{user_id}.jpg"
     await file.download_to_drive(path)
     temp[user_id]["file"] = path
-    temp[user_id]["video"] = False
     temp[user_id]["wait"] = True
-    await update.message.reply_text("أرسل ايموجي للستيكر")
+    await update.message.reply_text("أرسل ايموجي")
 
 async def video_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
@@ -80,7 +79,7 @@ async def video_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp[user_id]["file"] = path
     temp[user_id]["video"] = True
     temp[user_id]["wait"] = True
-    await update.message.reply_text("أرسل ايموجي للستيكر")
+    await update.message.reply_text("أرسل ايموجي")
 
 async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     data = temp[user_id]
@@ -90,19 +89,22 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     try:
         if data.get("video"):
             clip = VideoFileClip(path)
-            # التأكد من عمل subclip في كل الإصدارات
-            duration = min(2.9, clip.duration)
-            clip = clip.subclip(0, duration)
             
+            # حل مشكلة subclip في MoviePy 2.0+
+            try:
+                clip = clip.subclip(0, min(2.9, clip.duration))
+            except AttributeError:
+                clip = clip.cropped(0, min(2.9, clip.duration)) # للمسخ الجديدة جداً
+            
+            # حل مشكلة resize
             w, h = clip.size
-            if w > h: clip = clip.resize(width=512)
-            else: clip = clip.resize(height=512)
-            
+            try:
+                clip = clip.resize(width=512) if w > h else clip.resize(height=512)
+            except AttributeError:
+                clip = clip.resized(width=512) if w > h else clip.resized(height=512)
+
             out = f"{user_id}.webm"
-            clip.write_videofile(
-                out, codec="libvpx-vp9", fps=30, bitrate="300k", 
-                audio=False, logger=None, ffmpeg_params=["-pix_fmt", "yuva420p"]
-            )
+            clip.write_videofile(out, codec="libvpx-vp9", fps=30, bitrate="300k", audio=False, logger=None, ffmpeg_params=["-pix_fmt", "yuva420p"])
             clip.close()
             sticker_format = "video"
         else:
@@ -118,21 +120,19 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
         pack_name = user_packs.get(user_id)
         if pack_name:
             with open(out, "rb") as f:
-                # محاولة الإضافة بطريقة متوافقة مع إصدارات المكتبة المختلفة
+                sticker_obj = InputSticker(sticker=f, emoji_list=[emoji])
                 try:
-                    sticker_obj = InputSticker(sticker=f, emoji_list=[emoji])
                     await context.bot.add_sticker_to_set(user_id=int(user_id), name=pack_name, sticker=sticker_obj)
                 except Exception:
-                    # إذا كانت الحزمة غير موجودة، ننشئها
                     await context.bot.create_new_sticker_set(
                         user_id=int(user_id), name=pack_name, title="My Pack", 
                         stickers=[InputSticker(sticker=open(out, "rb"), emoji_list=[emoji])],
                         sticker_format=sticker_format
                     )
-                await update.message.reply_text("✅ تمت الإضافة بنجاح!")
+                await update.message.reply_text("✅ تمت الإضافة!")
 
     except Exception as e:
-        await update.message.reply_text(f"❌ خطأ: {str(e)}")
+        await update.message.reply_text(f"❌ خطأ تقني: {str(e)}")
     finally:
         if os.path.exists(path): os.remove(path)
         if out and os.path.exists(out): os.remove(out)
