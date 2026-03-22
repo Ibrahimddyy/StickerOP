@@ -1,5 +1,4 @@
 import os
-import json
 from PIL import Image
 from moviepy.editor import VideoFileClip
 
@@ -63,7 +62,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         temp[user_id]["pack"] = pack_id
         temp[user_id]["create_pack"] = False
 
-        await update.message.reply_text("✅ تم حفظ اسم الحزمة، ارسل اول صورة او فيديو")
+        await update.message.reply_text("✅ تم إنشاء الحزمة، ارسل اول صورة او فيديو")
 
     elif text == "🗂️ حزمي":
         pack = temp.get(user_id, {}).get("pack")
@@ -125,8 +124,10 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
     emoji = data.get("emoji", "😄")
 
     try:
+        # ===== VIDEO =====
         if data.get("video"):
             clip = VideoFileClip(path)
+
             duration = min(3, clip.duration)
             clip = clip.subclip(0, duration)
             clip = clip.resize(height=512)
@@ -138,18 +139,22 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
                 codec="libvpx-vp9",
                 audio=False,
                 fps=24,
-                bitrate="500k"
+                bitrate="500k",
+                preset="medium"
             )
 
             sticker_file = open(out, "rb")
             sticker_format = "video"
 
+        # ===== IMAGE =====
         else:
             img = Image.open(path)
-            img = img.resize((512, 512))
+
+            # resize بجودة عالية (بديل ANTIALIAS)
+            img = img.resize((512, 512), Image.Resampling.LANCZOS)
 
             out = f"{user_id}.webp"
-            img.save(out, "WEBP")
+            img.save(out, "WEBP", quality=100)
 
             sticker_file = open(out, "rb")
             sticker_format = "static"
@@ -160,7 +165,7 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
             sticker=sticker_file
         )
 
-        # رفع للحزمة
+        # ===== PACK =====
         pack = data.get("pack")
         if pack:
             try:
@@ -197,7 +202,7 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
         await update.message.reply_text(f"✅ تم الستيكر {emoji}")
 
     except Exception as e:
-        await update.message.reply_text(f"خطأ: {e}")
+        await update.message.reply_text(f"❌ خطأ: {e}")
 
     finally:
         if os.path.exists(path):
@@ -215,6 +220,6 @@ app.add_handler(MessageHandler(filters.TEXT, text_handler))
 app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
 app.add_handler(MessageHandler(filters.VIDEO, video_handler))
 
-print("🔥 BOT RUNNING")
+print("🔥 BOT RUNNING...")
 
 app.run_polling()
