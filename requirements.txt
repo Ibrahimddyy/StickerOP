@@ -1,4 +1,5 @@
-python-telegram-bot
-Pillow
-moviepy
+python-telegram-bot==20.3
+Pillow>=10.0.0
+moviepy==1.0.3
 imageio-ffmpeg
+setuptools
