@@ -1,7 +1,7 @@
 python-telegram-bot==22.7
 Pillow>=10.0.0
-moviepy==1.0.3
-imageio==2.31.1
+moviepy
+imageio
 imageio-ffmpeg==0.4.9
 numpy
 setuptools
