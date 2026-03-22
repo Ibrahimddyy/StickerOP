@@ -130,7 +130,7 @@ async def process(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id):
 
             duration = min(3, clip.duration)
             clip = clip.subclip(0, duration)
-            clip = clip.resize(height=512)
+            clip = clip.resized(height=512)
 
             out = f"{user_id}.webm"
 
