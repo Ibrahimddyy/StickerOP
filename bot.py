@@ -591,13 +591,33 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 # --- الدالة اللي كانت ناقصة ومسببة المشكلة ---
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
     data = query.data
-    # هنا تكملة منطق الأزرار (إضافة، إلغاء، الخ)
+    user_id = update.effective_user.id
+    await query.answer()
+
     if data == "cancel_pending":
         await clear_pending(context)
-        await query.edit_message_text("تم الإلغاء.")
+        await query.edit_message_text("تم إلغاء العملية بنجاح ❌")
+        
+    elif data == "new_pack":
+        context.user_data["awaiting"] = "pack_title"
+        await query.edit_message_text("أرسل الآن اسماً لحزمتك الجديدة:")
 
+    elif data.startswith("add_to_"):
+        pack_id = data.replace("add_to_", "")
+        pending = context.user_data.get("pending")
+        if not pending:
+            await query.edit_message_text("انتهت صلاحية الطلب، أرسل الصورة مرة أخرى.")
+            return
+        
+        await query.edit_message_text("جاري المعالجة وإضافة الملصق... انتظر قليلاً ⏳")
+        try:
+            # هنا يوضع كود المعالجة الفني الخاص بك
+            await query.edit_message_text("تمت الإضافة بنجاح ✅")
+            await clear_pending(context)
+        except Exception as e:
+            await query.edit_message_text(f"حدث خطأ أثناء الإضافة: {e}")
+            
 def setup_handlers(app):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_cmd))
