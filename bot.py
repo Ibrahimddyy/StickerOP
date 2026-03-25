@@ -2,13 +2,13 @@ import os
 import sqlite3
 import logging
 import asyncio
+import uuid
 from PIL import Image
 
-# إعداد السجلات لمراقبة أداء البوت في Railway
+# إعداد السجلات
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# حل مشكلة Pillow الحديثة لضمان جودة الملصقات الثابتة
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = getattr(Image, 'LANCZOS', 1)
 
@@ -49,7 +49,7 @@ def get_user_packs(user_id):
 
 db_init()
 
-# --- القوائم والأزرار الرائعة لسهولة الاستخدام ---
+# --- القوائم ---
 def main_menu():
     return ReplyKeyboardMarkup([
         [KeyboardButton("📸 تحويل صورة"), KeyboardButton("🎥 تحويل فيديو / GIF")],
@@ -58,9 +58,8 @@ def main_menu():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # تصفير أي حالة قديمة للمستخدم لضمان بداية نظيفة
     if user_id in context.user_data: context.user_data.clear()
-    await update.message.reply_text("👋 أهلاً بك! البوت جاهز لإنشاء ملصقاتك. اختر نوع التحويل للبدء:", reply_markup=main_menu())
+    await update.message.reply_text("👋 أهلاً بك! اختر نوع الملصق للبدء:", reply_markup=main_menu())
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -79,34 +78,31 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "📦 إنشاء حزمة جديدة":
         context.user_data["state"] = "waiting_title"
-        await update.message.reply_text("✍️ أرسل عنوان الحزمة:")
+        await update.message.reply_text("✍️ أرسل عنوان الحزمة بالعربي:")
 
     elif state == "waiting_title":
         context.user_data["temp_title"] = text
         context.user_data["state"] = "waiting_name"
-        await update.message.reply_text("🔗 أرسل اسم الرابط بالإنجليزي (مثال: MyPack):")
+        await update.message.reply_text("🔗 أرسل اسم الرابط بالإنجليزي (مثلاً: MyPack2026):")
 
     elif state == "waiting_name":
-        # تنظيف الاسم لضمان قبول تلغرام له (الأحرف والأرقام فقط)
+        # تنظيف الاسم
         clean_name = "".join(e for e in text if e.isalnum())
         context.user_data["temp_name"] = clean_name
         context.user_data["state"] = "waiting_first_sticker"
-        await update.message.reply_text("✅ رائع! الآن أرسل (أول ملصق) لتفعيل الحزمة:")
+        await update.message.reply_text("✅ الآن أرسل (أول ملصق) لتفعيل هذه الحزمة:")
 
     elif state == "waiting_emoji":
-        # حل مشكلة الإيموجي الفيك: حفظ الإيموجي الجديد في سياق الملصق الحالي
         if "last_sticker_info" in context.user_data:
             context.user_data["last_sticker_info"]["emoji"] = text
-            
-            # الانتقال لخطوة اختيار الحزمة
             packs = get_user_packs(user_id)
             if not packs:
-                await update.message.reply_text("⚠️ ملصقك جاهز، لكن لا تملك حزم! اضغط 'إنشاء حزمة جديدة' أولاً.")
+                await update.message.reply_text("⚠️ لا تملك حزم! اضغط 'إنشاء حزمة جديدة' أولاً.")
                 context.user_data.clear()
             else:
                 context.user_data["state"] = "selecting_pack"
                 buttons = [[KeyboardButton(f"➕ إضافة إلى: {p[1]}")] for p in packs]
-                await update.message.reply_text(f"👍 تم اعتماد الإيموجي {text}.\nالآن اختر الحزمة:", 
+                await update.message.reply_text(f"👍 تم اختيار {text}. الآن اختر الحزمة:", 
                                                 reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True))
 
     elif text.startswith("➕ إضافة إلى: "):
@@ -115,7 +111,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "🗂️ حزمي الحالية":
         packs = get_user_packs(user_id)
         if not packs:
-            await update.message.reply_text("⚠️ لا تملك حزم حالياً.")
+            await update.message.reply_text("⚠️ لا تملك حزم مسجلة في البوت حالياً.")
         else:
             msg = "📚 حزمك النشطة:\n\n"
             for p in packs:
@@ -130,125 +126,92 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not media: return
 
     try:
-        status_msg = await update.message.reply_text("⏳ جاري المعالجة الاحترافية للفيديو/الصورة...")
-        
-        # تحميل الملف وحفظه مؤقتاً
+        status_msg = await update.message.reply_text("⏳ جاري المعالجة...")
         file = await (media[-1].get_file() if msg.photo else media.get_file())
         ext = "jpg" if msg.photo else "mp4"
-        raw_path = f"raw_{user_id}.{ext}"
+        raw_path = f"raw_{user_id}_{uuid.uuid4().hex[:6]}.{ext}"
         await file.download_to_drive(raw_path)
         
-        # معالجة الملف وتحويله لنمط ملصق (ثابت أو فيديو)
         out_path, s_type = await process_media_core(raw_path, user_id, not msg.photo)
         
         if state == "waiting_first_sticker":
-            # في حالة إنشاء الحزمة، نستخدم إيموجي افتراضي للسرعة
             context.user_data["last_sticker_info"] = {"path": out_path, "type": s_type, "emoji": "✨"}
             await create_pack_action(update, context)
         else:
-            # حفظ معلومات الملصق مؤقتاً بانتظار الإيموجي
             context.user_data["last_sticker_info"] = {"path": out_path, "type": s_type, "emoji": None}
             context.user_data["state"] = "waiting_emoji"
-            
-            # إرسال معاينة للملصق المحول
             with open(out_path, "rb") as f:
                 await context.bot.send_sticker(chat_id=user_id, sticker=f)
-                
-            await update.message.reply_text("😄 ملصقك جاهز! الآن أرسل (الإيموجي) الذي تريده لهذا الملصق:")
+            await update.message.reply_text("😄 ملصقك جاهز! الآن أرسل (الإيموجي) المخصص له:")
 
         await status_msg.delete()
-        # تنظيف الملف الأصلي
         if os.path.exists(raw_path): os.remove(raw_path)
 
     except Exception as e:
         logger.error(e)
-        await update.message.reply_text(f"❌ خطأ في المعالجة: {str(e)}")
+        await update.message.reply_text(f"❌ خطأ: {str(e)}")
 
 async def process_media_core(raw_path, user_id, is_video):
-    # وظيفة المعالجة الأساسية التي تضمن الشفافية والقبول
-    out_path = f"out_{user_id}_{os.urandom(2).hex()}" + (".webm" if is_video else ".webp")
-    
+    out_path = f"out_{user_id}_{uuid.uuid4().hex[:6]}" + (".webm" if is_video else ".webp")
     if not is_video:
-        # معالجة الصور
         img = Image.open(raw_path).convert("RGBA")
         img.thumbnail((512, 512), Image.ANTIALIAS)
         img.save(out_path, "WEBP")
         return out_path, StickerFormat.STATIC
     else:
-        # معالجة الفيديوهات لضمان قبولها عند الإضافة للحزم
         clip = VideoFileClip(raw_path)
-        duration = min(2.8, clip.duration) # جعلناه 2.8 لضمان عدم تجاوز الـ 3 ثواني
-        clip = clip.subclip(0, duration)
-        
-        w, h = clip.size
-        # ضبط القياسات بدقة (يجب أن يكون أحد الأبعاد 512 والآخر 512 أو أقل)
-        if w > h:
-            clip = clip.resize(width=512)
-        else:
-            clip = clip.resize(height=512)
-        
-        # تقليل الـ bitrate إلى 200k لضمان قبول الملف في الحزم البرمجية
-        clip.write_videofile(
-            out_path, 
-            codec="libvpx-vp9", 
-            fps=30, 
-            bitrate="200k", 
-            audio=False, 
-            logger=None, 
-            ffmpeg_params=['-pix_fmt', 'yuva420p', '-metadata:s:v:0', 'alpha_mode=1']
-        )
+        clip = clip.subclip(0, min(2.8, clip.duration))
+        if clip.size[0] > clip.size[1]: clip = clip.resize(width=512)
+        else: clip = clip.resize(height=512)
+        # إعدادات لضمان القبول في الحزم
+        clip.write_videofile(out_path, codec="libvpx-vp9", fps=30, bitrate="200k", audio=False, logger=None, ffmpeg_params=['-pix_fmt', 'yuva420p', '-metadata:s:v:0', 'alpha_mode=1'])
         clip.close()
         return out_path, StickerFormat.VIDEO
 
 async def create_pack_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # إنشاء حزمة جديدة باستخدام معلومات الملصق الأول
     user_id = update.effective_user.id
     sticker_info = context.user_data.get("last_sticker_info")
     bot_info = await context.bot.get_me()
     
-    # بناء الاسم الصحيح للرابط (st_..._by_Bot)
+    # إضافة معرف فريد للرابط لضمان عدم التكرار
     clean_name = context.user_data["temp_name"]
-    full_name = f"st_{clean_name}_{user_id}_by_{bot_info.username}"
+    unique_suffix = uuid.uuid4().hex[:4]
+    full_name = f"st_{clean_name}_{unique_suffix}_{user_id}_by_{bot_info.username}"
     title = context.user_data["temp_title"]
 
     try:
         with open(sticker_info["path"], "rb") as f:
-            # ربط الإيموجي بالملصق بشكل حقيقي
             stk = InputSticker(sticker=f, emoji_list=[sticker_info["emoji"]])
             await context.bot.create_new_sticker_set(
                 user_id=user_id, name=full_name, title=title, 
                 stickers=[stk], sticker_format=sticker_info["type"]
             )
-        # حفظ الحزمة في قاعدة البيانات
         add_pack_to_db(user_id, full_name, title, sticker_info["type"].value)
         await update.message.reply_text(f"🎉 تم إنشاء الحزمة بنجاح!\nالرابط: t.me/addstickers/{full_name}", reply_markup=main_menu())
     except Exception as e:
-        await update.message.reply_text(f"❌ فشل إنشاء الحزمة: {e}")
+        # الكشف عن الخطأ الحقيقي من تليجرام
+        await update.message.reply_text(f"❌ فشل من تليجرام: {str(e)}\nنصيحة: جرب اسماً أطول للرابط.")
     finally:
-        # تنظيف ملف الملصق بعد الاستخدام
         if sticker_info and os.path.exists(sticker_info["path"]): os.remove(sticker_info["path"])
         context.user_data.clear()
 
 async def add_to_existing_pack_action(update: Update, context: ContextTypes.DEFAULT_TYPE, text):
-    # إضافة الملصق لحزمة موجودة مسبقاً بالإيموجي المحدد
     user_id = update.effective_user.id
     sticker_info = context.user_data.get("last_sticker_info")
-    
     pack_title = text.replace("➕ إضافة إلى: ", "")
     packs = get_user_packs(user_id)
-    real_pack_name = next((p[0] for p in packs if p[1] == pack_title), None)
+    real_name = next((p[0] for p in packs if p[1] == pack_title), None)
     
-    if real_pack_name and sticker_info:
+    if real_name and sticker_info:
         try:
             with open(sticker_info["path"], "rb") as f:
-                # استخدام الإيموجي الذي أرسله المستخدم فعلياً لملصق الفيديو أو الصورة
                 stk = InputSticker(sticker=f, emoji_list=[sticker_info["emoji"]])
-                await context.bot.add_sticker_to_set(user_id=user_id, name=real_pack_name, sticker=stk)
-            await update.message.reply_text(f"✅ تمت إضافة الملصق بنجاح بـ {sticker_info['emoji']}!", reply_markup=main_menu())
+                await context.bot.add_sticker_to_set(user_id=user_id, name=real_name, sticker=stk)
+            await update.message.reply_text(f"✅ تمت الإضافة بنجاح!", reply_markup=main_menu())
         except Exception as e:
-            await update.message.reply_text(f"❌ فشل الإضافة: {e}")
+            await update.message.reply_text(f"❌ فشل الإضافة: {str(e)}")
         finally:
-            if sticker_info and os.path.exists(sticker_info["path"]): os.remove(sticker_info["path"])
+            if os.path.exists(sticker_info["path"]): os.remove(sticker_info["path"])
             context.user_data.clear()
 
 if __name__ == '__main__':
