@@ -2,13 +2,14 @@ import os
 import sqlite3
 import logging
 import asyncio
-import uuid  # أضفتها هنا عشان ما يعلق الكود
+import uuid  # ضرورية لتوليد أسماء ملفات فريدة ومنع التداخل
 from PIL import Image
 
-# إعداد السجلات
+# إعداد السجلات لمراقبة أداء البوت
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# حل مشكلة Pillow الحديثة
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = getattr(Image, 'LANCZOS', 1)
 
@@ -24,7 +25,7 @@ from telegram.constants import StickerFormat
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-# --- قاعدة بيانات ثابتة ---
+# --- إدارة قاعدة البيانات ---
 def db_init():
     conn = sqlite3.connect("stickers_bot.db")
     cursor = conn.cursor()
@@ -35,6 +36,7 @@ def db_init():
 def add_pack_to_db(user_id, name, title, s_type):
     conn = sqlite3.connect("stickers_bot.db")
     cursor = conn.cursor()
+    # التحقق من عدم تكرار الحزمة لنفس المستخدم
     cursor.execute("SELECT 1 FROM packs WHERE user_id = ? AND pack_name = ?", (user_id, name))
     if not cursor.fetchone():
         cursor.execute("INSERT INTO packs VALUES (?, ?, ?, ?)", (user_id, name, title, s_type))
@@ -51,7 +53,7 @@ def get_user_packs(user_id):
 
 db_init()
 
-# --- القوائم ---
+# --- القوائم والأزرار ---
 def main_menu():
     return ReplyKeyboardMarkup([
         [KeyboardButton("📸 تحويل صورة"), KeyboardButton("🎥 تحويل فيديو / GIF")],
@@ -60,8 +62,9 @@ def main_menu():
     ], resize_keyboard=True)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     context.user_data.clear()
-    await update.message.reply_text("تم تحديث النظام! البوت الآن جاهز للربط والتحويل:", reply_markup=main_menu())
+    await update.message.reply_text("البوت الجبار جاهز للعمل!\nيمكنك التحويل، أو إنشاء حزم، أو ربط حزم قديمة:", reply_markup=main_menu())
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -74,25 +77,26 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif text == "🎥 تحويل فيديو / GIF":
         context.user_data.update({"mode": "video", "state": None})
-        await update.message.reply_text("📥 أرسل الفيديو أو الـ GIF...")
+        await update.message.reply_text("📥 أرسل الفيديو أو الـ GIF (أقل من 3 ثوانٍ)...")
 
     elif text == "📦 إنشاء حزمة جديدة":
         context.user_data["state"] = "waiting_title"
-        await update.message.reply_text("✍️ أرسل عنوان الحزمة بالعربي:")
+        await update.message.reply_text("✍️ أرسل عنوان الحزمة:")
 
     elif text == "➕ ربط حزمة يدوياً":
         context.user_data["state"] = "waiting_manual_name"
-        await update.message.reply_text("🔗 أرسل الاسم القصير للحزمة (Sticker Set Name):")
+        await update.message.reply_text("🔗 أرسل رابط الحزمة أو اسمها القصير (Short Name):")
 
     elif state == "waiting_manual_name":
-        short_name = text.split('/')[-1].strip()
+        # تنظيف المدخلات (سواء أرسل رابط كامل أو اسم فقط)
+        short_name = text.strip().split('/')[-1].split('?')[0]
         try:
             s_set = await context.bot.get_sticker_set(short_name)
             s_type = "video" if s_set.is_video else "static"
             add_pack_to_db(user_id, short_name, s_set.title, s_type)
-            await update.message.reply_text(f"✅ تم ربط الحزمة بنجاح: {s_set.title}", reply_markup=main_menu())
-        except Exception as e:
-            await update.message.reply_text(f"❌ لم أجد الحزمة! تأكد من الاسم.")
+            await update.message.reply_text(f"✅ تم ربط الحزمة بنجاح!\n📦 العنوان: {s_set.title}", reply_markup=main_menu())
+        except Exception:
+            await update.message.reply_text("❌ لم أجد الحزمة! تأكد من الاسم القصير أو الرابط.")
         context.user_data.clear()
 
     elif state == "waiting_title":
@@ -102,18 +106,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif state == "waiting_name":
         clean_name = "".join(e for e in text if e.isalnum())
         context.user_data.update({"temp_name": clean_name, "state": "waiting_first_sticker"})
-        await update.message.reply_text("✅ أرسل (أول ملصق) لتفعيل الحزمة:")
+        await update.message.reply_text("✅ رائع! الآن أرسل (أول ملصق) لتفعيل الحزمة:")
 
     elif state == "waiting_emoji":
         if "last_sticker_info" in context.user_data:
             context.user_data["last_sticker_info"]["emoji"] = text
             packs = get_user_packs(user_id)
-            if packs:
+            if not packs:
+                await update.message.reply_text("⚠️ ملصقك جاهز، لكن لا تملك حزم!")
+                context.user_data.clear()
+            else:
                 context.user_data["state"] = "selecting_pack"
                 buttons = [[KeyboardButton(f"➕ إضافة إلى: {p[1]}")] for p in packs]
-                await update.message.reply_text(f"👍 اختر الحزمة للإضافة إليها:", reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True))
-            else:
-                await update.message.reply_text("⚠️ لا تملك حزم! أنشئ واحدة أولاً.")
+                await update.message.reply_text(f"👍 اختر الحزمة:", reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True))
 
     elif text.startswith("➕ إضافة إلى: "):
         await add_to_existing_pack_action(update, context, text)
@@ -147,13 +152,13 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["state"] = "waiting_emoji"
             with open(out_path, "rb") as f: await context.bot.send_sticker(chat_id=user_id, sticker=f)
             await update.message.reply_text("😄 ملصقك جاهز! الآن أرسل (الإيموجي):")
-        
+
         await status_msg.delete()
         if os.path.exists(raw_path): os.remove(raw_path)
     except Exception as e: await update.message.reply_text(f"❌ خطأ: {e}")
 
 async def process_media_core(raw_path, user_id, is_video):
-    out_path = f"out_{user_id}_{uuid.uuid4().hex[:4]}" + (".webm" if is_video else ".webp")
+    out_path = f"out_{user_id}_{os.urandom(2).hex()}" + (".webm" if is_video else ".webp")
     if not is_video:
         img = Image.open(raw_path).convert("RGBA")
         img.thumbnail((512, 512), Image.ANTIALIAS)
@@ -210,4 +215,4 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.VIDEO_NOTE, handle_media))
     app.run_polling(drop_pending_updates=True)
-        
+    
