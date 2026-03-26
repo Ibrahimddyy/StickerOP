@@ -60,7 +60,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     # تصفير أي حالة قديمة للمستخدم لضمان بداية نظيفة
     if user_id in context.user_data: context.user_data.clear()
-    await update.message.reply_text("👋 البوت جاهز! اختر نوع الملصق للبدء:", reply_markup=main_menu())
+    await update.message.reply_text("البوت جاهز للبدء امشاء حزمتين واحدة للصور واخرى للفيديو/GIF لاتضف الملسق بصيغية الصور في الحزمة في صيغة الفيديو/GIF :", reply_markup=main_menu())
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
