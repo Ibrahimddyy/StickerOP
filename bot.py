@@ -16,7 +16,7 @@ except:
 TOKEN = os.getenv("BOT_TOKEN")
 STORE_FILE = "user_packs.json"
 
-# --- نظام حفظ البيانات لضمان عدم ضياع الحزم ---
+# --- نظام الحفظ ---
 def load_db():
     if os.path.exists(STORE_FILE):
         try:
@@ -30,7 +30,7 @@ def save_db(data):
 
 DB = load_db()
 
-# --- معالجة الميديا (المربع السحري 512x512) ---
+# --- معالجة الأبعاد 512x512 ---
 def process_sticker_media(raw_path, is_video):
     out = f"final_{uuid.uuid4().hex[:6]}" + (".webm" if is_video else ".webp")
     if not is_video:
@@ -46,7 +46,7 @@ def process_sticker_media(raw_path, is_video):
         clip.close()
     return out
 
-# --- القوائم ---
+# --- القوائم الرئيسية ---
 def main_menu():
     return ReplyKeyboardMarkup([
         [KeyboardButton("📸 تحويل صورة"), KeyboardButton("🎥 تحويل فيديو / GIF")],
@@ -56,7 +56,7 @@ def main_menu():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("🚀 أهلاً بك! تم تحديث النظام بالكامل.\nاختر من القائمة:", reply_markup=main_menu())
+    await update.message.reply_text("🚀 أهلاً بك! جرب الآن 'إنشاء حزمة' أو 'ربط يدوي'.", reply_markup=main_menu())
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -77,42 +77,42 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "➕ ربط حزمة يدوياً":
         context.user_data["state"] = "get_manual_link"
-        await update.message.reply_text("🔗 أرسل اسم الحزمة (الرابط) لربطها بالبوت:")
+        await update.message.reply_text("🔗 أرسل (الاسم القصير) للحزمة فقط:")
 
     elif text == "🗂️ حزمي":
         packs = DB.get(user_id, [])
-        if not packs: await update.message.reply_text("⚠️ لا توجد حزم محفوظة.")
+        if not packs: await update.message.reply_text("⚠️ لا توجد حزم.")
         else:
-            m = "📚 حزمك النشطة:\n\n" + "\n".join([f"🔹 {p['title']}\n t.me/addstickers/{p['name']}" for p in packs])
+            m = "📚 حزمك:\n\n" + "\n".join([f"🔹 {p['title']}\n t.me/addstickers/{p['name']}" for p in packs])
             await update.message.reply_text(m)
 
-    # --- إدارة الحالات ---
     elif state == "get_title":
         context.user_data.update({"t_title": text, "state": "get_name"})
         await update.message.reply_text("🔗 أرسل اسم الرابط (بالإنجليزي):")
 
     elif state == "get_name":
         context.user_data.update({"t_name": "".join(e for e in text if e.isalnum()), "state": "wait_first"})
-        await update.message.reply_text("✅ الآن أرسل (أول ملصق) لتفعيل الحزمة:")
+        await update.message.reply_text("✅ أرسل الآن الملصق الأول:")
 
     elif state == "get_manual_link":
         try:
-            p = await context.bot.get_sticker_set(text)
+            # تنظيف الرابط إذا أرسله المستخدم بالخطأ
+            clean_name = text.split('/')[-1]
+            p = await context.bot.get_sticker_set(clean_name)
             if user_id not in DB: DB[user_id] = []
-            DB[user_id].append({"name": text, "title": p.title})
-            save_db(DB)
+            if not any(x['name'] == clean_name for x in DB[user_id]):
+                DB[user_id].append({"name": clean_name, "title": p.title})
+                save_db(DB)
             await update.message.reply_text(f"✅ تم ربط الحزمة: {p.title}", reply_markup=main_menu())
-        except: await update.message.reply_text("❌ لم أجد الحزمة!")
+        except: await update.message.reply_text("❌ تأكد من الاسم القصير!")
         context.user_data["state"] = None
 
     elif state == "wait_emoji":
         context.user_data["emoji"] = text
         packs = DB.get(user_id, [])
-        if not packs:
-            await update.message.reply_text("⚠️ لا توجد حزم مرتبطة! استخدم 'إنشاء حزمة' أو 'ربط يدوياً'.")
-        else:
+        if packs:
             btns = [[KeyboardButton(f"➕ إضافة إلى: {p['title']}")] for p in packs]
-            await update.message.reply_text(f"👍 اختر الحزمة للإضافة إليها:", reply_markup=ReplyKeyboardMarkup(btns, resize_keyboard=True))
+            await update.message.reply_text(f"👍 اختر الحزمة:", reply_markup=ReplyKeyboardMarkup(btns, resize_keyboard=True))
 
     elif text.startswith("➕ إضافة إلى: "):
         await add_to_pack_final(update, context, text)
@@ -124,7 +124,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not media: return
 
     try:
-        status = await update.message.reply_text("⏳ جاري معالجة القياسات...")
+        status = await update.message.reply_text("⏳ جاري المعالجة...")
         raw = f"raw_{uuid.uuid4().hex[:4]}"
         file = await (media[-1].get_file() if msg.photo else media.get_file())
         await file.download_to_drive(raw)
@@ -142,36 +142,46 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await status.delete()
         if os.path.exists(raw): os.remove(raw)
-    except Exception as e: await update.message.reply_text(f"❌ خطأ معالجة: {e}")
+    except Exception as e: await update.message.reply_text(f"❌ خطأ: {e}")
 
 async def create_pack_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
+    user_id = update.effective_user.id
     info, bot = context.user_data["pending"], await context.bot.get_me()
+    # اسم فريد لضمان عدم التكرار
     p_name = f"st_{context.user_data['t_name']}_{uuid.uuid4().hex[:4]}_by_{bot.username}"
     p_title = context.user_data["t_title"]
 
     try:
         with open(info["path"], "rb") as f:
-            await context.bot.create_new_sticker_set(user_id, p_name, p_title, [InputSticker(f, ["✨"])], info["format"])
+            # الحل لـ Peer_id_invalid هو التأكد من إرسال الـ ID كرقم
+            await context.bot.create_new_sticker_set(
+                user_id=int(user_id), 
+                name=p_name, 
+                title=p_title, 
+                stickers=[InputSticker(f, ["✨"])], 
+                sticker_format=info["format"]
+            )
         
-        if user_id not in DB: DB[user_id] = []
-        DB[user_id].append({"name": p_name, "title": p_title})
+        uid_s = str(user_id)
+        if uid_s not in DB: DB[uid_s] = []
+        DB[uid_s].append({"name": p_name, "title": p_title})
         save_db(DB)
-        await update.message.reply_text(f"🎉 تم الإنشاء بنجاح!\n t.me/addstickers/{p_name}", reply_markup=main_menu())
-    except Exception as e: await update.message.reply_text(f"❌ تليجرام رفض: {e}")
+        await update.message.reply_text(f"🎉 تم الإنشاء!\n t.me/addstickers/{p_name}", reply_markup=main_menu())
+    except Exception as e: 
+        await update.message.reply_text(f"❌ تليجرام رفض الطلب: {e}\n(تأكد أنك بدأت المحادثة مع البوت أولاً)")
     finally:
         if os.path.exists(info["path"]): os.remove(info["path"])
         context.user_data.clear()
 
 async def add_to_pack_final(update: Update, context: ContextTypes.DEFAULT_TYPE, text):
-    user_id, info = str(update.effective_user.id), context.user_data.get("pending")
+    user_id, info = update.effective_user.id, context.user_data.get("pending")
     title = text.replace("➕ إضافة إلى: ", "")
-    pack = next((p for p in DB.get(user_id, []) if p['title'] == title), None)
+    pack = next((p for p in DB.get(str(user_id), []) if p['title'] == title), None)
 
     if pack and info:
         try:
             with open(info["path"], "rb") as f:
-                await context.bot.add_sticker_to_set(user_id, pack['name'], InputSticker(f, [context.user_data.get("emoji", "✨")]))
+                await context.bot.add_sticker_to_set(int(user_id), pack['name'], InputSticker(f, [context.user_data.get("emoji", "✨")]))
             await update.message.reply_text("✅ تمت الإضافة!", reply_markup=main_menu())
         except Exception as e: await update.message.reply_text(f"❌ فشل: {e}")
         finally:
@@ -184,4 +194,4 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.VIDEO_NOTE, handle_media))
     app.run_polling(drop_pending_updates=True)
-                
+    
